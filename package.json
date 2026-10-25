@@ -1,0 +1,47 @@
+{
+  "name": "gpufinder",
+  "version": "0.1.0",
+  "description": "GPU Finder MCP server: live cloud GPU prices, stock and price history across 30+ providers, for Claude, Cursor, VS Code and any MCP client.",
+  "mcpName": "dev.gpufinder/gpufinder",
+  "type": "module",
+  "bin": {
+    "gpufinder": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "gpu",
+    "cloud-gpu",
+    "gpu-prices",
+    "h100",
+    "b200",
+    "ai-infrastructure"
+  ],
+  "homepage": "https://gpufinder.dev/api",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gpufinder/mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gpufinder/mcp/issues"
+  },
+  "author": "GPU Finder <alex@gpufinder.dev>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.0"
+  }
+}

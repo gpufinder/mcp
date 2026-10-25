@@ -1,0 +1,26 @@
+name: Release
+# Publishes to npm when a v* tag is pushed. Uses npm trusted publishing (OIDC):
+# configure it once on npmjs.com → package "gpufinder" → Settings → Trusted publishing
+# (GitHub Actions, org gpufinder, repo mcp, workflow release.yml). No npm token is stored.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Check tag matches package version
+        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - run: npm publish --provenance --access public
