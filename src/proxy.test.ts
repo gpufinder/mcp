@@ -1,5 +1,5 @@
 import { PassThrough } from "node:stream"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { parseSse, runProxy } from "./proxy.js"
 
 type Call = { url: string; headers: Record<string, string>; body: unknown }
@@ -29,6 +29,53 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 
 describe("runProxy", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
+
+  it.each(["tools/call", "tools/list"])("returns one correlated error for an empty successful %s response", async (method) => {
+    const { written } = await run([{ jsonrpc: "2.0", id: "empty", method }], () => new Response(null, { status: 200 }))
+    expect(written).toHaveLength(1)
+    expect(written[0].id).toBe("empty")
+    expect(method === "tools/call" ? written[0].result.isError : written[0].error.code).toBe(method === "tools/call" ? true : -32001)
+    expect(JSON.stringify(written[0])).toContain("Empty HTTP 200")
+  })
+
+  it.each(["reset", "timeout"])("survives a body %s after headers and serves a later request on the same process", async (mode) => {
+    vi.useFakeTimers()
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      const controller = new AbortController()
+      setTimeout(() => controller.abort(new DOMException("Body timed out", "TimeoutError")), ms)
+      return controller.signal
+    })
+    const input = new PassThrough(), output = new PassThrough()
+    const written: any[] = []
+    output.on("data", (chunk: Buffer) => written.push(JSON.parse(chunk.toString())))
+    const fetchImpl = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body))
+      if (request.id === 2) return Promise.resolve(json({ jsonrpc: "2.0", id: 2, result: { tools: [] } }))
+      return Promise.resolve(new Response(new ReadableStream({ start(controller) {
+        if (mode === "reset") controller.error(new Error("connection reset after headers"))
+        else init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason), { once: true })
+      } }), { status: 200, headers: { "content-type": "application/json" } }))
+    }) as typeof fetch
+    const done = runProxy({ input, output, userAgent: "test", apiKey: "gpf_v1_secret", fetchImpl })
+    input.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call" })}\n`)
+    await vi.advanceTimersByTimeAsync(mode === "timeout" ? 60_000 : 0)
+    expect(written).toHaveLength(1)
+    expect(written[0]).toMatchObject({ id: 1, result: { isError: true } })
+    expect(JSON.stringify(written[0])).not.toContain("gpf_v1_secret")
+    input.end(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })}\n`)
+    await done
+    expect(written).toHaveLength(2)
+    expect(written[1]).toEqual({ jsonrpc: "2.0", id: 2, result: { tools: [] } })
+  })
+
+  it("does not reply to a notification whose response body fails", async () => {
+    const { written } = await run([{ jsonrpc: "2.0", method: "notifications/initialized" }], () =>
+      new Response(new ReadableStream({ start(controller) { controller.error(new Error("reset")) } })),
+    )
+    expect(written).toEqual([])
+  })
+
   it("forwards requests with the bearer key and user agent, and relays JSON-RPC replies", async () => {
     const { calls, written } = await run(
       [{ jsonrpc: "2.0", id: 1, method: "tools/list" }],
