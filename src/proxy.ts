@@ -71,6 +71,7 @@ export function runProxy(options: ProxyOptions): Promise<void> {
     }
     log(`→ ${message.method ?? "response"}${isRequest ? ` #${String(message.id)}` : ""}`)
     let response: Response
+    let body: string
     try {
       response = await doFetch(url, {
         method: "POST",
@@ -78,6 +79,8 @@ export function runProxy(options: ProxyOptions): Promise<void> {
         body: JSON.stringify(message),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
+      // The same timeout covers the body: fetch can resolve before a stream fails.
+      body = await response.text()
     } catch (error) {
       if (isRequest) write(failure(message, 0, `Could not reach ${url}: ${errorText(error)}`))
       return
@@ -86,9 +89,8 @@ export function runProxy(options: ProxyOptions): Promise<void> {
     if (newSession) sessionId = newSession
     log(`← ${response.status} ${message.method ?? ""}`)
 
-    const body = await response.text()
     if (!body.trim()) {
-      if (isRequest && !response.ok) write(failure(message, response.status, `HTTP ${response.status}`))
+      if (isRequest) write(failure(message, response.status, `Empty HTTP ${response.status} response to ${message.method}`))
       return
     }
     const contentType = response.headers.get("content-type") ?? ""
@@ -112,8 +114,11 @@ export function runProxy(options: ProxyOptions): Promise<void> {
     for (const m of Array.isArray(message) ? message : [message]) {
       // Only client→server traffic is forwarded; the server sends no requests of its own.
       if (typeof (m as JsonRpcMessage)?.method !== "string") continue
-      const task = forward(m as JsonRpcMessage).finally(() => pending.delete(task))
+      const task = forward(m as JsonRpcMessage)
       pending.add(task)
+      // Attach both handlers immediately. A rejected forwarding task must never
+      // become an unhandled rejection while stdin remains open.
+      void task.then(() => pending.delete(task), () => pending.delete(task))
     }
   }
 
