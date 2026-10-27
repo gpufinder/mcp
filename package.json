@@ -1,6 +1,6 @@
 {
   "name": "gpufinder",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "GPU Finder MCP server: live cloud GPU prices, stock and price history across 30+ providers, for Claude, Cursor, VS Code and any MCP client.",
   "mcpName": "dev.gpufinder/gpufinder",
   "type": "module",
